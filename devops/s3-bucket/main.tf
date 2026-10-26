@@ -24,7 +24,7 @@ data "aws_caller_identity" "current" {}
 # Private S3 bucket. The account ID keeps the name globally unique,
 # and other modules rebuild the same name from the same convention.
 resource "aws_s3_bucket" "lab" {
-  bucket        = "bundle3-${var.participant}-${data.aws_caller_identity.current.account_id}"
+  bucket        = "s3-${var.participant}-${data.aws_caller_identity.current.account_id}"
   force_destroy = true # lets Step 3 delete the bucket even if you put files in it
 }
 

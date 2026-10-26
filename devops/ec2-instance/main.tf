@@ -41,7 +41,7 @@ resource "aws_instance" "lab" {
   instance_type = "t3.micro"
 
   tags = {
-    Name = "bundle3-${var.participant}"
+    Name = "ec2-${var.participant}"
   }
 }
 
