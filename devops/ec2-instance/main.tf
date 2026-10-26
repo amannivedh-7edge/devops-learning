@@ -1,7 +1,3 @@
-data "external" "env" {
-  program = ["../envs.sh"]
-}
-
 terraform {
   backend "s3" {
     region       = "us-east-1"
@@ -11,13 +7,13 @@ terraform {
 }
 
 provider "aws" {
-  region  = data.external.env.result["REGION"]
-  profile = data.external.env.result["PROFILE"]
+  region  = var.region
+  profile = var.profile
 
   default_tags {
     tags = {
       project     = "bundle-3-hands-on"
-      participant = data.external.env.result["PARTICIPANT"]
+      participant = var.participant
       managed_by  = "terraform"
     }
   }
@@ -45,7 +41,7 @@ resource "aws_instance" "lab" {
   instance_type = "t3.micro"
 
   tags = {
-    Name = "bundle3-${data.external.env.result["PARTICIPANT"]}"
+    Name = "bundle3-${var.participant}"
   }
 }
 

@@ -1,8 +1,8 @@
-# Bundle 3 — Terraform hands-on
+# Terraform hands-on
 
 **Time:** about 20 minutes. **Work:** on your own or in pairs.
 
-You will build a few small AWS resources with Terraform, remove one of them, and then delete everything. The folder is laid out like `easyid-admin-backend-apis/devops`: one folder per module, each with its own state file in S3 and its own lock, all run by `terraform_run.sh`.
+You will build a few small AWS resources with Terraform, remove one of them, and then delete everything. The folder is laid out like: one folder per module, each with its own state file in S3 and its own lock, all run by `terraform_run.sh`.
 
 | Step | What you do | What the plans should say |
 |---|---|---|
@@ -19,19 +19,38 @@ devops-learning/
   instructions.md
   terraform_run.sh            init each module with -backend-config, then plan / apply / destroy
   devops/
-    envs.sh                   hands PARTICIPANT, REGION, PROFILE to Terraform as JSON
-    s3-bucket/main.tf         private S3 bucket + public access block
-    ssm-parameter/main.tf     SSM parameter that stores the bucket name
-    ec2-instance/main.tf      t3.micro EC2 instance            <- Step 2 happens here
+    s3-bucket/
+      main.tf                 private S3 bucket + public access block
+      variables.tf            participant, region, profile
+    ssm-parameter/
+      main.tf                 SSM parameter that stores the bucket name
+      variables.tf
+    ec2-instance/
+      main.tf                 t3.micro EC2 instance            <- Step 2 happens here
+      variables.tf
 ```
 
-Every `main.tf` starts the same way as the modules in admin-backend:
+Each module has its own `variables.tf` with three inputs. `terraform_run.sh` fills them with `-var`, using the answers you give when it starts:
 
 ```hcl
-data "external" "env" {
-  program = ["../envs.sh"]          # reads PARTICIPANT, REGION, PROFILE from your shell
+variable "participant" {            # your name, used in every resource name
+  type = string
 }
 
+variable "region" {
+  type    = string
+  default = "us-east-1"
+}
+
+variable "profile" {
+  type    = string
+  default = "default"
+}
+```
+
+Every `main.tf` then starts with the same backend and provider:
+
+```hcl
 terraform {
   backend "s3" {                    # no bucket, no key — terraform_run.sh adds them
     region       = "us-east-1"
@@ -39,9 +58,14 @@ terraform {
     use_lockfile = true
   }
 }
+
+provider "aws" {
+  region  = var.region
+  profile = var.profile
+}
 ```
 
-And `terraform_run.sh` loops over the modules exactly like the pipeline does:
+And `terraform_run.sh` loops over the modules exactly like the pipeline does. `PARTICIPANT`, `STATE_BUCKET` and `PROFILE` are the answers you type when the script starts:
 
 ```bash
 terraform -chdir=devops/$module init -reconfigure \
@@ -49,6 +73,9 @@ terraform -chdir=devops/$module init -reconfigure \
     -backend-config="key=training/bundle-3/${PARTICIPANT}/${module}/terraform.tfstate" \
     -backend-config="profile=${PROFILE}" \
     -backend-config="region=${REGION}"
+
+terraform -chdir=devops/$module plan \
+    -var="participant=${PARTICIPANT}" -var="region=${REGION}" -var="profile=${PROFILE}"
 ```
 
 Each participant and each module gets its own `key`, so there are **three state files per person**, and nobody touches anyone else's.
@@ -59,21 +86,20 @@ Each participant and each module gets its own `key`, so there are **three state 
 
 You need Terraform 1.10 or newer (`terraform version`), the AWS CLI, and an AWS profile for the training account.
 
-Set these in your terminal. Use your own name in lowercase with no spaces. The trainer will give you the bucket name.
+You don't need to set anything up first. Every time you run `terraform_run.sh`, it asks for three things:
 
-```bash
-cd ~/learning/devops-learning
-
-export PARTICIPANT=yourname
-export STATE_BUCKET=<bucket-from-trainer>
-export PROFILE=<training-profile>       # optional, defaults to "default"
+```
+$ ./terraform_run.sh plan
+Your name (lowercase, no spaces, e.g. aman): aman
+State bucket (from the trainer): <bucket-from-trainer>
+AWS profile [default]: <training-profile>        # press Enter to use "default"
 ```
 
-Check that you are in the right account:
+- **Your name** goes into your state file path and into every resource name, so use the same name on every run.
+- **State bucket** is the shared bucket the trainer gives you.
+- **AWS profile** is your profile for the training account.
 
-```bash
-aws sts get-caller-identity --profile $PROFILE
-```
+The script then checks which AWS account you are in (`aws sts get-caller-identity`) before running Terraform.
 
 The script can run every module, or just one:
 
@@ -112,8 +138,8 @@ For each module, the script saves the plan to a file and applies exactly that fi
 ```bash
 terraform -chdir=devops/s3-bucket state list       # 2 resources (+ data sources)
 terraform -chdir=devops/ec2-instance output        # instance_id
-aws ssm get-parameter --name /bundle3/$PARTICIPANT/bucket-name \
-    --query Parameter.Value --profile $PROFILE
+aws ssm get-parameter --name /bundle3/<yourname>/bucket-name \
+    --query Parameter.Value --profile <your-profile>
 ```
 
 In the S3 console, open the state bucket and go to `training/bundle-3/<yourname>/`. There is one folder per module, each with its own `terraform.tfstate`.
@@ -124,7 +150,7 @@ In the S3 console, open the state bucket and go to `training/bundle-3/<yourname>
 
 ## Step 2 — Remove one resource (the EC2 instance)
 
-There is no "delete" command for a single resource. You remove it from the code, and Terraform works out that it must be destroyed. This is the same thing you will see in admin-backend's `devops/ecr-new/main.tf`, where a repository is commented out.
+There is no "delete" command for a single resource. You remove it from the code, and Terraform works out that it must be destroyed. 
 
 **1. Open `devops/ec2-instance/main.tf`** and comment out the `resource "aws_instance" "lab"` block **and** the `output "instance_id"` block. In VS Code, select them and press `Ctrl + /`. Leave the `data`, `terraform` and `provider` blocks alone.
 
@@ -149,7 +175,7 @@ Expected: `Plan: 0 to add, 0 to change, 1 to destroy.`
 
 > **Think about it:** what if, instead of commenting out the resource, you deleted `"ec2-instance"` from the `modules=( ... )` list in `terraform_run.sh`? Try a plan and see. The instance stays running. The script would just stop looking at it, and that is how forgotten resources happen.
 
-> **Optional, to see locking:** open a second terminal, export the same `PARTICIPANT` and `STATE_BUCKET`, and run `./terraform_run.sh apply s3-bucket` in both terminals at the same moment. One of them stops with `Error acquiring the state lock`. While the first run is going, look in the state bucket for `s3-bucket/terraform.tfstate.tflock`.
+> **Optional, to see locking:** open a second terminal and run `./terraform_run.sh apply s3-bucket` in both terminals at the same moment, giving the same name and bucket in both. One of them stops with `Error acquiring the state lock`. While the first run is going, look in the state bucket for `s3-bucket/terraform.tfstate.tflock`.
 
 ---
 
@@ -168,7 +194,7 @@ Check that it is all gone:
 
 ```bash
 for m in s3-bucket ssm-parameter ec2-instance; do terraform -chdir=devops/$m state list; done   # no resources
-aws s3 ls --profile $PROFILE | grep bundle3-$PARTICIPANT                                         # nothing
+aws s3 ls --profile <your-profile> | grep bundle3-<yourname>                                     # nothing
 ```
 
 The state files still exist in S3, but they are now empty: Terraform owns nothing. Uncomment `ec2-instance/main.tf` again so the folder is clean for the next person.
@@ -179,13 +205,13 @@ The state files still exist in S3, but they are now empty: Terraform owns nothin
 
 | You see | What it means | What to do |
 |---|---|---|
-| `Set PARTICIPANT ...` / `Set STATE_BUCKET ...` | An environment variable is missing | Run the `export` lines again in this terminal |
-| `PARTICIPANT must be 2-20 characters` | Your name has capitals, spaces or symbols | Use lowercase letters, digits or `-` only |
-| `Invalid index` on `data.external.env.result["..."]` | `envs.sh` did not see a variable | Run through `./terraform_run.sh`, not plain `terraform plan`. The script exports `PROFILE` and `REGION` for you |
-| `permission denied: ../envs.sh` | The script lost its execute bit | `chmod +x devops/envs.sh` |
+| `Name must be 2-20 characters` | Your name has capitals, spaces or symbols | Use lowercase letters, digits or `-` only |
+| `State bucket is required.` | You pressed Enter without a bucket name | Run again and paste the bucket name from the trainer |
+| Step 2 or 3 plans want to **create** everything | You typed a different name from Step 1, so the script used a new, empty state file | Run again with exactly the same name as in Step 1 |
+| Terraform asks `var.participant ... Enter a value:` | You ran plain `terraform plan`, so nothing passed the variables | Run through `./terraform_run.sh`, which adds the `-var` flags |
 | `Error acquiring the state lock` | Another run is using that module's state, maybe your second terminal | Wait for it to finish. Tell the trainer if it does not clear |
 | `Reference to undeclared resource "aws_instance" "lab"` | You commented out the instance but not the output | Comment out `output "instance_id"` as well |
-| `No valid credential sources found` / `ExpiredToken` | The AWS profile is wrong or has expired | Check `PROFILE`, then log in again |
+| `Unable to locate credentials` / `ExpiredToken` | The AWS profile is wrong or has expired | Check the profile name you entered, then log in again |
 | `BucketAlreadyOwnedByYou` / `BucketAlreadyExists` | A bucket with your name is still there from an earlier run | Ask the trainer. It needs a `terraform import` or a manual delete |
 | `VPCIdNotSpecified` / `No default VPC` | The region has no default VPC | Tell the trainer |
 

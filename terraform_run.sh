@@ -9,12 +9,9 @@
 #   ./terraform_run.sh destroy [module]   # plan a destroy, then apply it
 # Leave out [module] to run every module in the list below.
 #
-# Required environment variables:
-#   PARTICIPANT   your name, lowercase, no spaces (e.g. aman)
-#   STATE_BUCKET  the shared state bucket the trainer gives you
-# Optional:
-#   PROFILE       AWS CLI profile (default: default)
-#   REGION        AWS region      (default: us-east-1)
+# The script asks for your name, the state bucket and your AWS profile when it starts.
+# Values already set in the shell (PARTICIPANT, STATE_BUCKET, PROFILE, REGION) are used
+# without asking. REGION defaults to us-east-1.
 
 action=${1:-plan}
 only_module=${2:-}
@@ -32,16 +29,30 @@ if [ -n "$only_module" ] && [ ! -d "$(dirname "$0")/devops/$only_module" ]; then
     exit 1
 fi
 
-: "${PARTICIPANT:?Set PARTICIPANT, e.g. export PARTICIPANT=aman}"
-: "${STATE_BUCKET:?Set STATE_BUCKET to the bucket name the trainer shared}"
+# Ask once per run (skipped if the value is already set in the shell)
+if [ -z "${PARTICIPANT:-}" ]; then
+    read -rp "Your name (lowercase, no spaces, e.g. aman): " PARTICIPANT
+fi
 if ! [[ "$PARTICIPANT" =~ ^[a-z0-9-]{2,20}$ ]]; then
-    echo "PARTICIPANT must be 2-20 characters: lowercase letters, digits or hyphens."
+    echo "Name must be 2-20 characters: lowercase letters, digits or hyphens."
     exit 1
 fi
+if [ -z "${STATE_BUCKET:-}" ]; then
+    read -rp "State bucket (from the trainer): " STATE_BUCKET
+fi
+if [ -z "$STATE_BUCKET" ]; then
+    echo "State bucket is required."
+    exit 1
+fi
+if [ -z "${PROFILE:-}" ]; then
+    read -rp "AWS profile [default]: " PROFILE
+fi
 
-# envs.sh passes these to the modules through data "external" "env"
-export PROFILE=${PROFILE:-default}
-export REGION=${REGION:-us-east-1}
+PROFILE=${PROFILE:-default}
+REGION=${REGION:-us-east-1}
+
+# Values for each module's variables.tf
+tf_vars=(-var="participant=${PARTICIPANT}" -var="region=${REGION}" -var="profile=${PROFILE}")
 
 overall_status=0
 run_command() {
@@ -78,14 +89,14 @@ terraform_module() {
 
     case "$action" in
         plan)
-            run_command terraform -chdir=devops/$module plan
+            run_command terraform -chdir=devops/$module plan "${tf_vars[@]}"
             ;;
         apply)
-            run_command terraform -chdir=devops/$module plan -out=tfplan &&
+            run_command terraform -chdir=devops/$module plan "${tf_vars[@]}" -out=tfplan &&
                 run_command terraform -chdir=devops/$module apply tfplan
             ;;
         destroy)
-            run_command terraform -chdir=devops/$module plan -destroy -out=tfplan &&
+            run_command terraform -chdir=devops/$module plan -destroy "${tf_vars[@]}" -out=tfplan &&
                 run_command terraform -chdir=devops/$module apply tfplan
             ;;
     esac
