@@ -48,8 +48,8 @@ if [ -z "${PROFILE:-}" ]; then
     read -rp "AWS profile [default]: " PROFILE
 fi
 
-PROFILE=${PROFILE:-default}
-REGION=${REGION:-us-east-1}
+PROFILE=${PROFILE:-aman-personal}
+REGION=${REGION:-ap-south-1}
 
 # Values for each module's variables.tf
 tf_vars=(-var="participant=${PARTICIPANT}" -var="region=${REGION}" -var="profile=${PROFILE}")
